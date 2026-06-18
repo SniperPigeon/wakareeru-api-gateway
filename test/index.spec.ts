@@ -1,29 +1,134 @@
-import {
-	env,
-	createExecutionContext,
-	waitOnExecutionContext,
-	SELF,
-} from "cloudflare:test";
-import { describe, it, expect } from "vitest";
+import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
+import type { AppEnv } from "../src/types";
 
-// For now, you'll need to do something like this to get a correctly-typed
-// `Request` to pass to `worker.fetch()`.
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 
-describe("Hello World worker", () => {
-	it("responds with Hello World! (unit style)", async () => {
-		const request = new IncomingRequest("http://example.com");
-		// Create an empty context to pass to `worker.fetch()`.
-		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
-		// Wait for all `Promise`s passed to `ctx.waitUntil()` to settle before running test assertions
-		await waitOnExecutionContext(ctx);
-		expect(await response.text()).toMatchInlineSnapshot(`"Hello World!"`);
+function testEnv(overrides: Partial<AppEnv> = {}): AppEnv {
+	return {
+		...env,
+		INFERENCE_ENDPOINT_URL: "https://inference.example.test/v2/endpoint-id",
+		INFERENCE_API_KEY: "test-api-key",
+		...overrides,
+	} as AppEnv;
+}
+
+async function fetchWorker(request: Request, overrides: Partial<AppEnv> = {}): Promise<Response> {
+	const ctx = createExecutionContext();
+	const response = await worker.fetch(request, testEnv(overrides), ctx);
+	await waitOnExecutionContext(ctx);
+	return response;
+}
+
+function multipartRequest(body: FormData): Request {
+	return new IncomingRequest("https://gateway.example.test/v1/infer", {
+		method: "POST",
+		headers: { "cf-connecting-ip": "203.0.113.10" },
+		body,
+	});
+}
+
+describe("wakareeru API gateway", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
 	});
 
-	it("responds with Hello World! (integration style)", async () => {
-		const response = await SELF.fetch("https://example.com");
-		expect(await response.text()).toMatchInlineSnapshot(`"Hello World!"`);
+	it("returns health status", async () => {
+		const response = await fetchWorker(new IncomingRequest("https://gateway.example.test/health"));
+		const payload = await response.json<Record<string, unknown>>();
+
+		expect(response.status).toBe(200);
+		expect(payload.status).toBe("ok");
+		expect(payload.service).toBe("wakareeru-api-gateway");
+		expect(payload.request_id).toBeTypeOf("string");
+	});
+
+	it("returns version metadata from vars", async () => {
+		const response = await fetchWorker(new IncomingRequest("https://gateway.example.test/version"));
+		const payload = await response.json<Record<string, unknown>>();
+
+		expect(response.status).toBe(200);
+		expect(payload.gateway_version).toBe("0.1.0");
+		expect(payload.api_version).toBe("v1");
+		expect(payload.inference_provider).toBe("runpod");
+	});
+
+	it("accepts multipart image and forwards base64 payload to inference backend", async () => {
+		const upstreamFetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+			expect(String(url)).toBe("https://inference.example.test/v2/endpoint-id/runsync");
+			const body = JSON.parse(String(init?.body));
+			expect(body.input.image_base64).toBe("AQIDBA==");
+			expect(body.input.top_k).toBe(3);
+			expect(body.request_context.client_tier).toBe("anonymous");
+			expect(init?.headers).toBeInstanceOf(Headers);
+			expect((init?.headers as Headers).get("authorization")).toBe("Bearer test-api-key");
+
+			return Response.json({
+				status: "ok",
+				subject_count: 0,
+				subjects: [],
+			});
+		});
+		vi.stubGlobal("fetch", upstreamFetch);
+
+		const form = new FormData();
+		form.set("image", new File([new Uint8Array([1, 2, 3, 4])], "train.jpg", { type: "image/jpeg" }));
+		form.set("top_k", "3");
+
+		const response = await fetchWorker(multipartRequest(form));
+		const payload = await response.json<Record<string, unknown>>();
+
+		expect(response.status).toBe(200);
+		expect(payload.status).toBe("ok");
+		expect(upstreamFetch).toHaveBeenCalledOnce();
+	});
+
+	it("rejects unsupported image types before calling upstream", async () => {
+		const upstreamFetch = vi.fn();
+		vi.stubGlobal("fetch", upstreamFetch);
+
+		const form = new FormData();
+		form.set("image", new File([new Uint8Array([1])], "photo.heic", { type: "image/heic" }));
+
+		const response = await fetchWorker(multipartRequest(form));
+		const payload = await response.json<{ error: { code: string } }>();
+
+		expect(response.status).toBe(415);
+		expect(payload.error.code).toBe("unsupported_image_type");
+		expect(upstreamFetch).not.toHaveBeenCalled();
+	});
+
+	it("rejects oversized images before calling upstream", async () => {
+		const upstreamFetch = vi.fn();
+		vi.stubGlobal("fetch", upstreamFetch);
+
+		const form = new FormData();
+		form.set("image", new File([new Uint8Array([1, 2])], "train.png", { type: "image/png" }));
+
+		const response = await fetchWorker(multipartRequest(form), { MAX_IMAGE_BYTES: "1" });
+		const payload = await response.json<{ error: { code: string } }>();
+
+		expect(response.status).toBe(413);
+		expect(payload.error.code).toBe("image_too_large");
+		expect(upstreamFetch).not.toHaveBeenCalled();
+	});
+
+	it("maps upstream failures to a gateway error", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				Response.json({ error: "backend exploded" }, { status: 502 }),
+			),
+		);
+
+		const form = new FormData();
+		form.set("image", new File([new Uint8Array([1])], "train.webp", { type: "image/webp" }));
+
+		const response = await fetchWorker(multipartRequest(form));
+		const payload = await response.json<{ error: { code: string } }>();
+
+		expect(response.status).toBe(502);
+		expect(payload.error.code).toBe("upstream_error");
 	});
 });
