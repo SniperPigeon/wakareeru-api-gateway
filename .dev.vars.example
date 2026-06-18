@@ -1,0 +1,19 @@
+# Copy this file to .dev.vars for local wrangler dev.
+# Do not commit .dev.vars; it may contain secrets.
+
+# RunPod / inference backend
+INFERENCE_ENDPOINT_URL=
+INFERENCE_API_KEY=
+
+# Optional local overrides for non-secret vars from wrangler.jsonc
+# API_VERSION=v1
+# GATEWAY_VERSION=0.1.0
+# INFERENCE_PROVIDER=runpod
+# INFERENCE_TIMEOUT_MS=60000
+# MAX_IMAGE_BYTES=8388608
+# ALLOWED_IMAGE_TYPES=image/jpeg,image/png,image/webp
+
+# Reserved for later auth modes
+# DEV_TOKENS=token_one,token_two
+# ENABLE_DEV_TOKEN_AUTH=false
+# ENABLE_APPLE_AUTH=false
