@@ -10,8 +10,22 @@ function testEnv(overrides: Partial<AppEnv> = {}): AppEnv {
 		...env,
 		INFERENCE_ENDPOINT_URL: "https://inference.example.test/v2/endpoint-id",
 		INFERENCE_API_KEY: "test-api-key",
+		ANON_INFER_RATE_LIMITER: undefined,
+		USER_INFER_RATE_LIMITER: undefined,
+		DEV_INFER_RATE_LIMITER: undefined,
 		...overrides,
 	} as AppEnv;
+}
+
+function configKv(values: Record<string, string>): Pick<KVNamespace, "get"> {
+	return {
+		async get(key: string | string[]) {
+			if (Array.isArray(key)) {
+				return new Map(key.map((item) => [item, values[item] ?? null]));
+			}
+			return values[key] ?? null;
+		},
+	} as Pick<KVNamespace, "get">;
 }
 
 async function fetchWorker(request: Request, overrides: Partial<AppEnv> = {}): Promise<Response> {
@@ -32,6 +46,7 @@ function multipartRequest(body: FormData): Request {
 describe("wakareeru API gateway", () => {
 	afterEach(() => {
 		vi.restoreAllMocks();
+		vi.useRealTimers();
 	});
 
 	it("returns health status", async () => {
@@ -51,6 +66,16 @@ describe("wakareeru API gateway", () => {
 		expect(response.status).toBe(200);
 		expect(payload.api_version).toBe("v1");
 		expect(payload.inference_provider).toBe("runpod");
+	});
+
+	it("returns model version from KV config", async () => {
+		const response = await fetchWorker(new IncomingRequest("https://gateway.example.test/version"), {
+			wakareeru_config: configKv({ MODEL_VERSION: "0.3.0-alpha.1" }) as KVNamespace,
+		});
+		const payload = await response.json<Record<string, unknown>>();
+
+		expect(response.status).toBe(200);
+		expect(payload.model_version).toBe("0.3.0-alpha.1");
 	});
 
 	it("accepts multipart image and forwards base64 payload to inference backend", async () => {
@@ -143,6 +168,51 @@ describe("wakareeru API gateway", () => {
 		expect(response.status).toBe(413);
 		expect(payload.error.code).toBe("image_too_large");
 		expect(upstreamFetch).not.toHaveBeenCalled();
+	});
+
+	it("uses max image bytes from KV config", async () => {
+		const upstreamFetch = vi.fn();
+		vi.stubGlobal("fetch", upstreamFetch);
+
+		const form = new FormData();
+		form.set("image", new File([new Uint8Array([1, 2])], "train.png", { type: "image/png" }));
+
+		const response = await fetchWorker(multipartRequest(form), {
+			wakareeru_config: configKv({ MAX_IMAGE_BYTES: "1" }) as KVNamespace,
+		});
+		const payload = await response.json<{ error: { code: string } }>();
+
+		expect(response.status).toBe(413);
+		expect(payload.error.code).toBe("image_too_large");
+		expect(upstreamFetch).not.toHaveBeenCalled();
+	});
+
+	it("uses inference timeout from KV config", async () => {
+		vi.useFakeTimers();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				(_url: RequestInfo | URL, init?: RequestInit) =>
+					new Promise((_resolve, reject) => {
+						init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+					}),
+			),
+		);
+
+		const form = new FormData();
+		form.set("image", new File([new Uint8Array([1])], "train.webp", { type: "image/webp" }));
+
+		const responsePromise = fetchWorker(multipartRequest(form), {
+			wakareeru_config: configKv({ INFERENCE_TIMEOUT_MS: "5" }) as KVNamespace,
+		});
+
+		await vi.advanceTimersByTimeAsync(5);
+		const response = await responsePromise;
+		const payload = await response.json<{ error: { code: string } }>();
+
+		expect(response.status).toBe(504);
+		expect(payload.error.code).toBe("upstream_timeout");
+		vi.useRealTimers();
 	});
 
 	it("maps upstream failures to a gateway error", async () => {

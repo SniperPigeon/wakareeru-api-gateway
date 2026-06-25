@@ -142,6 +142,14 @@ HEIF/HEIC and large original photos should be converted or resized by the fronte
 
 Non-secret defaults live in `wrangler.jsonc` under `vars`.
 
+Runtime inference settings are read from the `wakareeru_config` KV namespace:
+
+```text
+MODEL_VERSION
+INFERENCE_TIMEOUT_MS
+MAX_IMAGE_BYTES
+```
+
 Production secrets should be configured in Cloudflare Dashboard with matching names:
 
 ```text
