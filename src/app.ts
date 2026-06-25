@@ -7,14 +7,16 @@ import { inferRoute } from "./routes/infer";
 import { versionRoute } from "./routes/version";
 import { createRequestContext } from "./observability/requestId";
 import type { AppEnv } from "./types";
+import type { RuntimeConfigValues } from "./config/kv";
 
 export async function handleRequest(
 	request: Request,
 	env: AppEnv,
 	ctx: ExecutionContext,
+	runtimeConfig: RuntimeConfigValues = {},
 ): Promise<Response> {
 	const context = createRequestContext(request);
-	const config = getConfig(env);
+	const config = getConfig(env, runtimeConfig);
 
 	try {
 		if (request.method === "OPTIONS") {

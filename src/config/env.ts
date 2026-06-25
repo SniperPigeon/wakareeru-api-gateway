@@ -1,4 +1,5 @@
 import type { AppEnv } from "../types";
+import type { RuntimeConfigValues } from "./kv";
 
 export interface AppConfig {
 	apiVersion: string;
@@ -22,18 +23,24 @@ const DEFAULT_MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_IMAGE_TYPES = "image/jpeg,image/png,image/webp";
 
-export function getConfig(env: AppEnv): AppConfig {
+export function getConfig(env: AppEnv, runtimeConfig: RuntimeConfigValues = {}): AppConfig {
 	return {
 		apiVersion: env.API_VERSION || "v1",
 		gatewayVersion: env.GATEWAY_VERSION || "0.1.1",
-		modelVersion: env.MODEL_VERSION || "0.1.1-alpha.1",
+		modelVersion: runtimeConfig.modelVersion || env.MODEL_VERSION || "0.1.1-alpha.1",
 		inferenceProvider: env.INFERENCE_PROVIDER || "runpod",
 		inferenceEndpointUrl: nonEmpty(env.INFERENCE_ENDPOINT_URL),
 		inferenceOperationPath: normalizePath(env.INFERENCE_OPERATION_PATH || "/runsync"),
 		inferenceApiKey: nonEmpty(env.INFERENCE_API_KEY),
-		inferenceTimeoutMs: positiveInt(env.INFERENCE_TIMEOUT_MS, DEFAULT_TIMEOUT_MS),
+		inferenceTimeoutMs: positiveInt(
+			runtimeConfig.inferenceTimeoutMs || env.INFERENCE_TIMEOUT_MS,
+			DEFAULT_TIMEOUT_MS,
+		),
 		inferenceVersionHint: nonEmpty(readOptional(env, "INFERENCE_VERSION_HINT")),
-		maxImageBytes: positiveInt(env.MAX_IMAGE_BYTES, DEFAULT_MAX_IMAGE_BYTES),
+		maxImageBytes: positiveInt(
+			runtimeConfig.maxImageBytes || env.MAX_IMAGE_BYTES,
+			DEFAULT_MAX_IMAGE_BYTES,
+		),
 		allowedImageTypes: csvSet(env.ALLOWED_IMAGE_TYPES || DEFAULT_IMAGE_TYPES),
 		enableDevTokenAuth: bool(env.ENABLE_DEV_TOKEN_AUTH),
 		enableAppleAuth: bool(env.ENABLE_APPLE_AUTH),
