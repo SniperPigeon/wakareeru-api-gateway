@@ -8,17 +8,17 @@
 	"main": "src/index.ts",
 	"ratelimits": [
 		{
-		"name": "ANON_INFER_RATE_LIMITER",
-		// An identifier you define, that is unique to your Cloudflare account.
-		// Must be an integer.
-		"namespace_id": "1001",
-		// Limit: the number of tokens allowed within a given period in a single
-		// Cloudflare location
-		// Period: the duration of the period, in seconds. Must be either 10 or 60
-		"simple": {
-			"limit": 5,
-			"period": 60
-		}
+			"name": "ANON_INFER_RATE_LIMITER",
+			// An identifier you define, that is unique to your Cloudflare account.
+			// Must be an integer.
+			"namespace_id": "1001",
+			// Limit: the number of tokens allowed within a given period in a single
+			// Cloudflare location
+			// Period: the duration of the period, in seconds. Must be either 10 or 60
+			"simple": {
+				"limit": 5,
+				"period": 60
+			}
 		}
 	],
 	"compatibility_date": "2026-06-18",
@@ -32,15 +32,18 @@
 	"vars": {
 		"API_VERSION": "v1",
 		"GATEWAY_VERSION": "0.1.1",
-		"MODEL_VERSION": "0.2.0-alpha.1",
 		"INFERENCE_PROVIDER": "runpod",
 		"INFERENCE_OPERATION_PATH": "/runsync",
-		"INFERENCE_TIMEOUT_MS": "60000",
-		"MAX_IMAGE_BYTES": "8388608",
 		"ALLOWED_IMAGE_TYPES": "image/jpeg,image/png,image/webp",
 		"ENABLE_DEV_TOKEN_AUTH": "false",
 		"ENABLE_APPLE_AUTH": "false"
-	}
+	},
+	"kv_namespaces": [
+		{
+			"binding": "wakareeru_config",
+			"id": "a9b100b378164e9a9147e235be26de5f"
+		}
+	]
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

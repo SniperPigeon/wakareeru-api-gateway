@@ -3,7 +3,10 @@ export type AppEnv = Env & {
 	INFERENCE_API_KEY?: string;
 	INFERENCE_OPERATION_PATH?: string;
 	MODEL_VERSION?: string;
+	INFERENCE_TIMEOUT_MS?: string;
+	MAX_IMAGE_BYTES?: string;
 	DEV_TOKENS?: string;
+	wakareeru_config?: KVNamespace;
 	ANON_INFER_RATE_LIMITER?: RateLimitBinding;
 	USER_INFER_RATE_LIMITER?: RateLimitBinding;
 	DEV_INFER_RATE_LIMITER?: RateLimitBinding;
